@@ -3,7 +3,7 @@ import logging
 
 from adax import Adax
 import voluptuous as vol
-from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
+from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntityFeature
 from homeassistant.components.climate.const import (
     HVAC_MODE_HEAT,
     HVAC_MODE_OFF,
@@ -14,7 +14,9 @@ from homeassistant.const import (
     CONF_PASSWORD,
     PRECISION_WHOLE,
     TEMP_CELSIUS,
+    ENERGY_KILO_WATT_HOUR,
 )
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -47,10 +49,46 @@ async def _setup(hass, account_id, password, async_add_entities):
     dev = []
     for room in await adax_data_handler.get_rooms():
         dev.append(AdaxDevice(room, adax_data_handler))
-    async_add_entities(dev)
+        dev.append(AdaxEnergySensor(adax_data_handler, room))
+
+    async_add_entities(dev, True)
 
 
-class AdaxDevice(ClimateEntity):
+
+class AdaxEnergySensor(SensorEntity):
+    """Representation of an Adax Energy Sensor."""
+
+    def __init__(self, adax_data_handler, room):
+        """Initialize the sensor."""
+        self._adax_data_handler = adax_data_handler
+        self._room = room
+        self._state = None
+
+    @property
+    def name(self):
+        """Return the name of the sensor."""
+        return f"Adax Energy Usage {self._room['name']}"
+
+    @property
+    def state(self):
+        """Return the state of the sensor."""
+        return self._state
+
+    @property
+    def unit_of_measurement(self):
+        """Return the unit of measurement."""
+        return ENERGY_KILO_WATT_HOUR
+
+    async def async_update(self):
+        """Fetch new state data for the sensor."""
+        self._state = await self._adax_data_handler.fetch_energy_info(self._room["id"])    
+
+
+
+
+
+
+class AdaxDevice(ClimateEntityFeature):
     """Representation of a heater."""
 
     def __init__(self, heater_data, adax_data_handler):
@@ -100,14 +138,24 @@ class AdaxDevice(ClimateEntity):
             )
             await self._adax_data_handler.set_room_target_temperature(
                 self._heater_data["id"], temperature, True
-            )
+            )     
         elif hvac_mode == HVAC_MODE_OFF:
             await self._adax_data_handler.set_room_target_temperature(
                 self._heater_data["id"], self.min_temp, False
-            )
+            )            
         else:
             return
+    
+    async def async_turn_on(self):
+        """Turn the entity on."""   
+        await self.async_set_hvac_mode(HVAC_MODE_HEAT)
         await self._adax_data_handler.update()
+    
+    async def async_turn_off(self):
+        """Turn the entity off."""        
+        await self.async_set_hvac_mode(HVAC_MODE_OFF)
+        await self._adax_data_handler.update()
+
 
     @property
     def temperature_unit(self):
