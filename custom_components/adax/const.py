@@ -1,9 +1,4 @@
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntityDescription,
-    SensorStateClass,
-)
-from homeassistant.const import ENERGY_WATT_HOUR, POWER_WATT, Platform
+from homeassistant.const import Platform
 
 """Constants for Adax integration."""
 

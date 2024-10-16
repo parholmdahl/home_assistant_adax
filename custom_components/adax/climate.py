@@ -2,7 +2,7 @@
 import logging
 
 import voluptuous as vol
-from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntityFeature
+from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
 from homeassistant.components.climate.const import (
     ClimateEntityFeature,
     HVACMode,
@@ -13,9 +13,7 @@ from homeassistant.const import (
     PRECISION_WHOLE,
     UnitOfTemperature,
 )
-from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import ACCOUNT_ID
 from .data_handler import AdaxDataHandler
@@ -37,7 +35,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     
     async_add_entities(climate_entities, True)
 
-class AdaxDevice(ClimateEntityFeature):
+class AdaxDevice(ClimateEntity):
     """Representation of a heater."""
 
     def __init__(self, adax_data_handler, room):
@@ -95,17 +93,6 @@ class AdaxDevice(ClimateEntityFeature):
             )            
         else:
             return
-    
-    async def async_turn_on(self):
-        """Turn the entity on."""   
-        await self.async_set_hvac_mode(HVAC_MODE_HEAT)
-        await self._adax_data_handler.update()
-    
-    async def async_turn_off(self):
-        """Turn the entity off."""        
-        await self.async_set_hvac_mode(HVAC_MODE_OFF)
-        await self._adax_data_handler.update()
-
 
     @property
     def temperature_unit(self):
