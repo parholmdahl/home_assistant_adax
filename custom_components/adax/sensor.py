@@ -53,12 +53,12 @@ class AdaxEnergySensor(SensorEntity):
     @property
     def state_class(self):
         """Return the device class of the sensor."""
-        return SensorStateClass.TOTAL
+        return SensorStateClass.MEASUREMENT
     
     @property
     def last_reset(self):
         """Return the time when the sensor was last reset, if any."""
-        return datetime.datetime.now()
+        return None
 
     async def async_update(self):
         """Get the latest data."""
