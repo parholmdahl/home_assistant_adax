@@ -1,0 +1,18 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Kontot är redan konfigurerat"
+        },
+        "error": {
+            "connection_error": "Lyckades inte ansluta"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "account_id": "Konto ID",
+                    "password": "Lösenord"
+                }
+            }
+        }
+    }
+}
