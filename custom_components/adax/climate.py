@@ -1,145 +1,173 @@
 """Support for Adax wifi-enabled home heaters."""
-import logging
 
-import voluptuous as vol
-from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
-from homeassistant.components.climate.const import (
+from __future__ import annotations
+
+from typing import Any, cast
+
+from homeassistant.components.climate import (
+    ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
-    CONF_PASSWORD,
+    CONF_UNIQUE_ID,
     PRECISION_WHOLE,
     UnitOfTemperature,
 )
-from homeassistant.helpers import config_validation as cv
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ACCOUNT_ID
-from .data_handler import AdaxDataHandler
+from .const import CONNECTION_TYPE, DOMAIN, LOCAL
+from .data_handler import Adax, AdaxDataHandler, AdaxLocal
 from .sensor import AdaxEnergySensor
 
-_LOGGER = logging.getLogger(__name__)
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {vol.Required(ACCOUNT_ID): cv.string, vol.Required(CONF_PASSWORD): cv.string}
-)
-
-async def async_setup_entry(hass, entry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     """Set up the Adax thermostat with config flow."""
     adax_data_handler = hass.data[entry.entry_id]
-    climate_entities = []
+    if entry.data.get(CONNECTION_TYPE) == LOCAL:
+        async_add_entities(
+            [LocalAdaxDevice(adax_data_handler, entry.data[CONF_UNIQUE_ID])], True
+        )
+        return
 
-    for room in adax_data_handler._rooms:
-        climate_entities.append(AdaxDevice(adax_data_handler, room))
-    
-    async_add_entities(climate_entities, True)
+    async_add_entities(
+        (
+            AdaxDevice(room, adax_data_handler)
+            for room in adax_data_handler._rooms
+        ),
+        True,
+    )
+
 
 class AdaxDevice(ClimateEntity):
     """Representation of a heater."""
 
-    def __init__(self, adax_data_handler, room):
+    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
+    _attr_max_temp = 35
+    _attr_min_temp = 5
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TURN_OFF
+        | ClimateEntityFeature.TURN_ON
+    )
+    _attr_target_temperature_step = PRECISION_WHOLE
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _enable_turn_on_off_backwards_compatibility = False
+
+    def __init__(self, heater_data: dict[str, Any], adax_data_handler: AdaxDataHandler) -> None:
         """Initialize the heater."""
+        self._device_id = heater_data["id"]
         self._adax_data_handler = adax_data_handler
-        self._heater_data = room
-        self._energy_sensor = AdaxEnergySensor(adax_data_handler, room)
+        self._energy_sensor = AdaxEnergySensor(adax_data_handler, heater_data)
 
-    @property
-    def supported_features(self):
-        """Return the list of supported features."""
-        return ClimateEntityFeature.TARGET_TEMPERATURE
-
-    @property
-    def unique_id(self):
-        """Return a unique ID."""
-        return f"{self._heater_data['homeId']}_{self._heater_data['id']}"
-
-    @property
-    def name(self):
-        """Return the name of the device, if any."""
-        return self._heater_data["name"]
-
-    @property
-    def hvac_mode(self):
-        """Return hvac operation ie. heat, cool mode."""
-        if self._heater_data["heatingEnabled"]:
-            return HVACMode.HEAT
-        return HVACMode.OFF
-
-    @property
-    def icon(self):
-        """Return nice icon for heater."""
-        if self.hvac_mode == HVACMode.HEAT:
-            return "mdi:radiator"
-        return "mdi:radiator-off"
-
-    @property
-    def hvac_modes(self):
-        """Return the list of available hvac operation modes."""
-        return [HVACMode.HEAT, HVACMode.OFF]
-
-    async def async_set_hvac_mode(self, hvac_mode):
-        """Set hvac mode."""
-        if hvac_mode == HVACMode.HEAT:
-            temperature = max(
-                self.min_temp, self._heater_data.get("targetTemperature", self.min_temp)
-            )
-            await self._adax_data_handler.set_room_target_temperature(
-                self._heater_data["id"], temperature, True
-            )
-        elif hvac_mode == HVACMode.OFF:
-            await self._adax_data_handler.set_room_target_temperature(
-                self._heater_data["id"], self.min_temp, False
-            )            
-        else:
-            return
-
-    @property
-    def temperature_unit(self):
-        """Return the unit of measurement which this device uses."""
-        return UnitOfTemperature.CELSIUS
-
-    @property
-    def min_temp(self):
-        """Return the minimum temperature."""
-        return 5
-
-    @property
-    def max_temp(self):
-        """Return the maximum temperature."""
-        return 35
-
-    @property
-    def current_temperature(self):
-        """Return the current temperature."""
-        return self._heater_data.get("temperature")
-
-    @property
-    def target_temperature(self):
-        """Return the temperature we try to reach."""
-        return self._heater_data.get("targetTemperature")
-
-    @property
-    def target_temperature_step(self):
-        """Return the supported step of target temperature."""
-        return PRECISION_WHOLE
-
-    async def async_set_temperature(self, **kwargs):
-        """Set new target temperature."""
-        temperature = kwargs.get(ATTR_TEMPERATURE)
-        if temperature is None:
-            return
-        await self._adax_data_handler.set_room_target_temperature(
-            self._heater_data["id"], temperature, True
+        self._attr_unique_id = f"{heater_data['homeId']}_{heater_data['id']}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, heater_data["id"])},
+            # Instead of setting the device name to the entity name, adax
+            # should be updated to set has_entity_name = True, and set the entity
+            # name to None
+            name=cast(str | None, self.name),
+            manufacturer="Adax",
         )
 
-    async def async_update(self):
-        _LOGGER.debug("Updating AdaxDevice for room ID %s", self._heater_data["id"])
-        await self._adax_data_handler.async_update()
-        room = self._adax_data_handler.get_room(self._heater_data["id"])
-        if room:
-            self._heater_data = room
-            await self._energy_sensor.async_update()
-            _LOGGER.debug("Updated heater data for room ID %s", self._heater_data["id"])
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """Set hvac mode."""
+        if hvac_mode == HVACMode.HEAT:
+            temperature = max(self.min_temp, self.target_temperature or self.min_temp)
+            await self._adax_data_handler._adax.set_room_target_temperature(
+                self._device_id, temperature, True
+            )
+        elif hvac_mode == HVACMode.OFF:
+            await self._adax_data_handler._adax.set_room_target_temperature(
+                self._device_id, self.min_temp, False
+            )
         else:
-            _LOGGER.warning("Room ID %s not found in data handler", self._heater_data["id"])
+            return
+        await self._adax_data_handler._adax.update()
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        """Set new target temperature."""
+        if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
+            return
+        await self._adax_data_handler._adax.set_room_target_temperature(
+            self._device_id, temperature, True
+        )
+
+    async def async_update(self) -> None:
+        """Get the latest data."""
+        await self._adax_data_handler.async_update()
+        for room in self._adax_data_handler._rooms:
+            if room["id"] != self._device_id:
+                continue
+            await self._energy_sensor.async_update()
+            self._attr_name = room["name"]
+            self._attr_current_temperature = room.get("temperature")
+            self._attr_target_temperature = room.get("targetTemperature")
+            if room["heatingEnabled"]:
+                self._attr_hvac_mode = HVACMode.HEAT
+                self._attr_icon = "mdi:radiator"
+            else:
+                self._attr_hvac_mode = HVACMode.OFF
+                self._attr_icon = "mdi:radiator-off"
+            return
+
+
+class LocalAdaxDevice(ClimateEntity):
+    """Representation of a heater."""
+
+    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
+    _attr_hvac_mode = HVACMode.HEAT
+    _attr_max_temp = 35
+    _attr_min_temp = 5
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TURN_OFF
+        | ClimateEntityFeature.TURN_ON
+    )
+    _attr_target_temperature_step = PRECISION_WHOLE
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+
+    def __init__(self, adax_data_handler: AdaxDataHandler, unique_id: str) -> None:
+        """Initialize the heater."""
+        self._adax_data_handler = adax_data_handler
+        self._attr_unique_id = unique_id
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, unique_id)},
+            manufacturer="Adax",
+        )
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """Set hvac mode."""
+        if hvac_mode == HVACMode.HEAT:
+            temperature = self._attr_target_temperature or self._attr_min_temp
+            await self._adax_data_handler._adax.set_target_temperature(temperature)
+        elif hvac_mode == HVACMode.OFF:
+            await self._adax_data_handler._adax.set_target_temperature(0)
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        """Set new target temperature."""
+        if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
+            return
+        await self._adax_data_handler._adax.set_target_temperature(temperature)
+
+    async def async_update(self) -> None:
+        """Get the latest data."""
+        data = await self._adax_data_handler._adax.get_status()
+        self._attr_current_temperature = data["current_temperature"]
+        self._attr_available = self._attr_current_temperature is not None
+        if (target_temp := data["target_temperature"]) == 0:
+            self._attr_hvac_mode = HVACMode.OFF
+            self._attr_icon = "mdi:radiator-off"
+            if target_temp == 0:
+                self._attr_target_temperature = self._attr_min_temp
+        else:
+            self._attr_hvac_mode = HVACMode.HEAT
+            self._attr_icon = "mdi:radiator"
+            self._attr_target_temperature = target_temp

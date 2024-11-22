@@ -44,17 +44,17 @@ class AdaxEnergySensor(SensorEntity):
     def unit_of_measurement(self):
         """Return the unit of measurement."""
         return UnitOfEnergy.KILO_WATT_HOUR
-    
+
     @property
     def device_class(self):
         """Return the device class of the sensor."""
-        return SensorDeviceClass.ENERGY  
-    
+        return SensorDeviceClass.ENERGY
+
     @property
     def state_class(self):
         """Return the device class of the sensor."""
         return SensorStateClass.MEASUREMENT
-    
+
     @property
     def last_reset(self):
         """Return the time when the sensor was last reset, if any."""
@@ -62,7 +62,7 @@ class AdaxEnergySensor(SensorEntity):
 
     async def async_update(self):
         """Get the latest data."""
-        _LOGGER.debug("Updating AdaxEnergySensor for room ID %s", self._heater_data["id"])        
+        _LOGGER.debug("Updating AdaxEnergySensor for room ID %s", self._heater_data["id"])
         room = self._adax_data_handler.get_room(self._heater_data["id"])
         if room:
             self._heater_data = room
